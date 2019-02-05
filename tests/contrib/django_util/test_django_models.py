@@ -19,36 +19,42 @@ Unit tests for models and fields defined by the django_util helper.
 
 import base64
 import pickle
+import unittest
 
-from tests.contrib.django_util.models import CredentialsModel
+import jsonpickle
 
-import unittest2
+from oauth2client import _helpers
+from oauth2client import client
+from oauth2client.contrib.django_util import models
+from tests.contrib.django_util import models as tests_models
 
-from oauth2client._helpers import _from_bytes
-from oauth2client.client import Credentials
-from oauth2client.contrib.django_util.models import CredentialsField
 
-
-class TestCredentialsField(unittest2.TestCase):
+class TestCredentialsField(unittest.TestCase):
 
     def setUp(self):
-        self.fake_model = CredentialsModel()
+        self.fake_model = tests_models.CredentialsModel()
         self.fake_model_field = self.fake_model._meta.get_field('credentials')
-        self.field = CredentialsField(null=True)
-        self.credentials = Credentials()
-        self.pickle_str = _from_bytes(
+        self.field = models.CredentialsField(null=True)
+        self.credentials = client.Credentials()
+        self.pickle_str = _helpers._from_bytes(
             base64.b64encode(pickle.dumps(self.credentials)))
+        self.jsonpickle_str = _helpers._from_bytes(
+            base64.b64encode(jsonpickle.encode(self.credentials).encode()))
 
     def test_field_is_text(self):
         self.assertEqual(self.field.get_internal_type(), 'BinaryField')
 
     def test_field_unpickled(self):
         self.assertIsInstance(
-            self.field.to_python(self.pickle_str), Credentials)
+            self.field.to_python(self.pickle_str), client.Credentials)
+
+    def test_field_jsonunpickled(self):
+        self.assertIsInstance(
+            self.field.to_python(self.jsonpickle_str), client.Credentials)
 
     def test_field_already_unpickled(self):
         self.assertIsInstance(
-            self.field.to_python(self.credentials), Credentials)
+            self.field.to_python(self.credentials), client.Credentials)
 
     def test_none_field_unpickled(self):
         self.assertIsNone(self.field.to_python(None))
@@ -56,7 +62,7 @@ class TestCredentialsField(unittest2.TestCase):
     def test_from_db_value(self):
         value = self.field.from_db_value(
             self.pickle_str, None, None, None)
-        self.assertIsInstance(value, Credentials)
+        self.assertIsInstance(value, client.Credentials)
 
     def test_field_unpickled_none(self):
         self.assertEqual(self.field.to_python(None), None)
@@ -64,12 +70,12 @@ class TestCredentialsField(unittest2.TestCase):
     def test_field_pickled(self):
         prep_value = self.field.get_db_prep_value(self.credentials,
                                                   connection=None)
-        self.assertEqual(prep_value, self.pickle_str)
+        self.assertEqual(prep_value, self.jsonpickle_str)
 
     def test_field_value_to_string(self):
         self.fake_model.credentials = self.credentials
         value_str = self.fake_model_field.value_to_string(self.fake_model)
-        self.assertEqual(value_str, self.pickle_str)
+        self.assertEqual(value_str, self.jsonpickle_str)
 
     def test_field_value_to_string_none(self):
         self.fake_model.credentials = None
@@ -77,11 +83,11 @@ class TestCredentialsField(unittest2.TestCase):
         self.assertIsNone(value_str)
 
     def test_credentials_without_null(self):
-        credentials = CredentialsField()
+        credentials = models.CredentialsField()
         self.assertTrue(credentials.null)
 
 
-class CredentialWithSetStore(CredentialsField):
+class CredentialWithSetStore(models.CredentialsField):
     def __init__(self):
         self.model = CredentialWithSetStore
 
@@ -96,4 +102,4 @@ class FakeCredentialsModelMock(object):
 
 class FakeCredentialsModelMockNoSet(object):
 
-    credentials = CredentialsField()
+    credentials = models.CredentialsField()
