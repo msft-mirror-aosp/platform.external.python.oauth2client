@@ -15,20 +15,19 @@
 """Tests the initialization logic of django_util."""
 
 import copy
+import unittest
 
 import django.conf
 from django.conf.urls import include, url
-from django.contrib.auth.models import AnonymousUser
+from django.contrib.auth import models as django_models
 from django.core import exceptions
 import mock
 from six.moves import reload_module
-from tests.contrib.django_util import TestWithDjangoEnvironment
-import unittest2
 
 from oauth2client.contrib import django_util
 import oauth2client.contrib.django_util
-from oauth2client.contrib.django_util import (
-    _CREDENTIALS_KEY, get_storage, site, UserOAuth2)
+from oauth2client.contrib.django_util import site
+from tests.contrib import django_util as tests_django_util
 
 
 urlpatterns = [
@@ -36,7 +35,7 @@ urlpatterns = [
 ]
 
 
-class OAuth2SetupTest(unittest2.TestCase):
+class OAuth2SetupTest(unittest.TestCase):
 
     def setUp(self):
         self.save_settings = copy.deepcopy(django.conf.settings)
@@ -101,6 +100,20 @@ class OAuth2SetupTest(unittest2.TestCase):
                 object.__new__(django_util.OAuth2Settings),
                 django.conf.settings)
 
+    def test_no_middleware(self):
+        django.conf.settings.MIDDLEWARE_CLASSES = None
+        with self.assertRaises(exceptions.ImproperlyConfigured):
+            django_util.OAuth2Settings.__init__(
+                object.__new__(django_util.OAuth2Settings),
+                django.conf.settings)
+
+    def test_middleware_no_classes(self):
+        django.conf.settings.MIDDLEWARE = (
+            django.conf.settings.MIDDLEWARE_CLASSES)
+        django.conf.settings.MIDDLEWARE_CLASSES = None
+        # primarily testing this doesn't raise an exception
+        django_util.OAuth2Settings(django.conf.settings)
+
     def test_storage_model(self):
         STORAGE_MODEL = {
             'model': 'tests.contrib.django_util.models.CredentialsModel',
@@ -121,7 +134,7 @@ class MockObjectWithSession(object):
         self.session = session
 
 
-class SessionStorageTest(TestWithDjangoEnvironment):
+class SessionStorageTest(tests_django_util.TestWithDjangoEnvironment):
 
     def setUp(self):
         super(SessionStorageTest, self).setUp()
@@ -133,19 +146,19 @@ class SessionStorageTest(TestWithDjangoEnvironment):
         django.conf.settings = copy.deepcopy(self.save_settings)
 
     def test_session_delete(self):
-        self.session[_CREDENTIALS_KEY] = "test_val"
+        self.session[django_util._CREDENTIALS_KEY] = "test_val"
         request = MockObjectWithSession(self.session)
-        django_storage = get_storage(request)
+        django_storage = django_util.get_storage(request)
         django_storage.delete()
-        self.assertIsNone(self.session.get(_CREDENTIALS_KEY))
+        self.assertIsNone(self.session.get(django_util._CREDENTIALS_KEY))
 
     def test_session_delete_nothing(self):
         request = MockObjectWithSession(self.session)
-        django_storage = get_storage(request)
+        django_storage = django_util.get_storage(request)
         django_storage.delete()
 
 
-class TestUserOAuth2Object(TestWithDjangoEnvironment):
+class TestUserOAuth2Object(tests_django_util.TestWithDjangoEnvironment):
 
     def setUp(self):
         super(TestUserOAuth2Object, self).setUp()
@@ -167,6 +180,6 @@ class TestUserOAuth2Object(TestWithDjangoEnvironment):
         request = self.factory.get('oauth2/oauth2authorize',
                                    data={'return_url': '/return_endpoint'})
         request.session = self.session
-        request.user = AnonymousUser()
-        oauth2 = UserOAuth2(request)
+        request.user = django_models.AnonymousUser()
+        oauth2 = django_util.UserOAuth2(request)
         self.assertIsNone(oauth2.credentials)
