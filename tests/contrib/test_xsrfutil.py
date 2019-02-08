@@ -15,9 +15,9 @@
 """Tests for oauth2client.contrib.xsrfutil."""
 
 import base64
-import unittest
 
 import mock
+import unittest2
 
 from oauth2client import _helpers
 from oauth2client.contrib import xsrfutil
@@ -34,7 +34,10 @@ TEST_EXTRA_INFO_1 = b'extra_info_1'
 TEST_EXTRA_INFO_2 = b'more_extra_info'
 
 
-class Test_generate_token(unittest.TestCase):
+__author__ = 'jcgregorio@google.com (Joe Gregorio)'
+
+
+class Test_generate_token(unittest2.TestCase):
 
     def test_bad_positional(self):
         # Need 2 positional arguments.
@@ -46,10 +49,10 @@ class Test_generate_token(unittest.TestCase):
 
     def test_it(self):
         digest = b'foobar'
-        digester = mock.Mock()
-        digester.digest = mock.Mock(name='digest', return_value=digest)
+        digester = mock.MagicMock()
+        digester.digest = mock.MagicMock(name='digest', return_value=digest)
         with mock.patch('oauth2client.contrib.xsrfutil.hmac') as hmac:
-            hmac.new = mock.Mock(name='new', return_value=digester)
+            hmac.new = mock.MagicMock(name='new', return_value=digester)
             token = xsrfutil.generate_token(TEST_KEY,
                                             TEST_USER_ID_1,
                                             action_id=TEST_ACTION_ID_1,
@@ -75,13 +78,13 @@ class Test_generate_token(unittest.TestCase):
     def test_with_system_time(self):
         digest = b'foobar'
         curr_time = 1440449755.74
-        digester = mock.Mock()
-        digester.digest = mock.Mock(name='digest', return_value=digest)
+        digester = mock.MagicMock()
+        digester.digest = mock.MagicMock(name='digest', return_value=digest)
         with mock.patch('oauth2client.contrib.xsrfutil.hmac') as hmac:
-            hmac.new = mock.Mock(name='new', return_value=digester)
+            hmac.new = mock.MagicMock(name='new', return_value=digester)
 
             with mock.patch('oauth2client.contrib.xsrfutil.time') as time:
-                time.time = mock.Mock(name='time', return_value=curr_time)
+                time.time = mock.MagicMock(name='time', return_value=curr_time)
                 # when= is omitted
                 token = xsrfutil.generate_token(TEST_KEY,
                                                 TEST_USER_ID_1,
@@ -108,7 +111,7 @@ class Test_generate_token(unittest.TestCase):
                 self.assertEqual(token, expected_token)
 
 
-class Test_validate_token(unittest.TestCase):
+class Test_validate_token(unittest2.TestCase):
 
     def test_bad_positional(self):
         # Need 3 positional arguments.
@@ -139,7 +142,7 @@ class Test_validate_token(unittest.TestCase):
         key = user_id = None
         token = base64.b64encode(_helpers._to_bytes(str(token_time)))
         with mock.patch('oauth2client.contrib.xsrfutil.time') as time:
-            time.time = mock.Mock(name='time', return_value=curr_time)
+            time.time = mock.MagicMock(name='time', return_value=curr_time)
             self.assertFalse(xsrfutil.validate_token(key, token, user_id))
             time.time.assert_called_once_with()
 
@@ -215,7 +218,7 @@ class Test_validate_token(unittest.TestCase):
                                             when=token_time)
 
 
-class XsrfUtilTests(unittest.TestCase):
+class XsrfUtilTests(unittest2.TestCase):
     """Test xsrfutil functions."""
 
     def testGenerateAndValidateToken(self):
