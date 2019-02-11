@@ -18,18 +18,18 @@ import copy
 
 from django import http
 import django.conf
-from django.contrib.auth import models as django_models
+from django.contrib.auth.models import AnonymousUser, User
 import mock
 from six.moves import http_client
 from six.moves import reload_module
 from six.moves.urllib import parse
+from tests.contrib.django_util import TestWithDjangoEnvironment
 
 import oauth2client.contrib.django_util
 from oauth2client.contrib.django_util import decorators
-from tests.contrib import django_util as tests_django_util
 
 
-class OAuth2EnabledDecoratorTest(tests_django_util.TestWithDjangoEnvironment):
+class OAuth2EnabledDecoratorTest(TestWithDjangoEnvironment):
 
     def setUp(self):
         super(OAuth2EnabledDecoratorTest, self).setUp()
@@ -39,7 +39,7 @@ class OAuth2EnabledDecoratorTest(tests_django_util.TestWithDjangoEnvironment):
         # at import time, so in order for us to reload the settings
         # we need to reload the module
         reload_module(oauth2client.contrib.django_util)
-        self.user = django_models.User.objects.create_user(
+        self.user = User.objects.create_user(
             username='bill', email='bill@example.com', password='hunter2')
 
     def tearDown(self):
@@ -63,7 +63,7 @@ class OAuth2EnabledDecoratorTest(tests_django_util.TestWithDjangoEnvironment):
     @mock.patch('oauth2client.client.OAuth2Credentials')
     def test_has_credentials_in_storage(self, OAuth2Credentials):
         request = self.factory.get('/test')
-        request.session = mock.Mock()
+        request.session = mock.MagicMock()
 
         credentials_mock = mock.Mock(
             scopes=set(django.conf.settings.GOOGLE_OAUTH2_SCOPES))
@@ -88,11 +88,11 @@ class OAuth2EnabledDecoratorTest(tests_django_util.TestWithDjangoEnvironment):
     @mock.patch('oauth2client.contrib.dictionary_storage.DictionaryStorage')
     def test_specified_scopes(self, dictionary_storage_mock):
         request = self.factory.get('/test')
-        request.session = mock.Mock()
+        request.session = mock.MagicMock()
 
         credentials_mock = mock.Mock(
             scopes=set(django.conf.settings.GOOGLE_OAUTH2_SCOPES))
-        credentials_mock.has_scopes = mock.Mock(return_value=True)
+        credentials_mock.has_scopes = True
         credentials_mock.is_valid = True
         dictionary_storage_mock.get.return_value = credentials_mock
 
@@ -106,14 +106,14 @@ class OAuth2EnabledDecoratorTest(tests_django_util.TestWithDjangoEnvironment):
         self.assertFalse(request.oauth.has_credentials())
 
 
-class OAuth2RequiredDecoratorTest(tests_django_util.TestWithDjangoEnvironment):
+class OAuth2RequiredDecoratorTest(TestWithDjangoEnvironment):
 
     def setUp(self):
         super(OAuth2RequiredDecoratorTest, self).setUp()
         self.save_settings = copy.deepcopy(django.conf.settings)
 
         reload_module(oauth2client.contrib.django_util)
-        self.user = django_models.User.objects.create_user(
+        self.user = User.objects.create_user(
             username='bill', email='bill@example.com', password='hunter2')
 
     def tearDown(self):
@@ -141,13 +141,13 @@ class OAuth2RequiredDecoratorTest(tests_django_util.TestWithDjangoEnvironment):
     @mock.patch('oauth2client.contrib.django_util.UserOAuth2', autospec=True)
     def test_has_credentials_in_storage(self, UserOAuth2):
         request = self.factory.get('/test')
-        request.session = mock.Mock()
+        request.session = mock.MagicMock()
 
         @decorators.oauth_required
         def test_view(request):
             return http.HttpResponse("test")
 
-        my_user_oauth = mock.Mock()
+        my_user_oauth = mock.MagicMock()
 
         UserOAuth2.return_value = my_user_oauth
         my_user_oauth.has_credentials.return_value = True
@@ -161,7 +161,7 @@ class OAuth2RequiredDecoratorTest(tests_django_util.TestWithDjangoEnvironment):
             self, OAuth2Credentials):
         request = self.factory.get('/test')
 
-        request.session = mock.Mock()
+        request.session = mock.MagicMock()
         credentials_mock = mock.Mock(
             scopes=set(django.conf.settings.GOOGLE_OAUTH2_SCOPES))
         credentials_mock.has_scopes.return_value = False
@@ -179,11 +179,11 @@ class OAuth2RequiredDecoratorTest(tests_django_util.TestWithDjangoEnvironment):
     @mock.patch('oauth2client.client.OAuth2Credentials')
     def test_specified_scopes(self, OAuth2Credentials):
         request = self.factory.get('/test')
-        request.session = mock.Mock()
+        request.session = mock.MagicMock()
 
         credentials_mock = mock.Mock(
             scopes=set(django.conf.settings.GOOGLE_OAUTH2_SCOPES))
-        credentials_mock.has_scopes = mock.Mock(return_value=False)
+        credentials_mock.has_scopes = False
         OAuth2Credentials.from_json.return_value = credentials_mock
 
         @decorators.oauth_required(scopes=['additional-scope'])
@@ -195,8 +195,7 @@ class OAuth2RequiredDecoratorTest(tests_django_util.TestWithDjangoEnvironment):
             response.status_code, django.http.HttpResponseRedirect.status_code)
 
 
-class OAuth2RequiredDecoratorStorageModelTest(
-        tests_django_util.TestWithDjangoEnvironment):
+class OAuth2RequiredDecoratorStorageModelTest(TestWithDjangoEnvironment):
 
     def setUp(self):
         super(OAuth2RequiredDecoratorStorageModelTest, self).setUp()
@@ -210,7 +209,7 @@ class OAuth2RequiredDecoratorStorageModelTest(
         django.conf.settings.GOOGLE_OAUTH2_STORAGE_MODEL = STORAGE_MODEL
 
         reload_module(oauth2client.contrib.django_util)
-        self.user = django_models.User.objects.create_user(
+        self.user = User.objects.create_user(
             username='bill', email='bill@example.com', password='hunter2')
 
     def tearDown(self):
@@ -220,7 +219,7 @@ class OAuth2RequiredDecoratorStorageModelTest(
     def test_redirects_anonymous_to_login(self):
         request = self.factory.get('/test')
         request.session = self.session
-        request.user = django_models.AnonymousUser()
+        request.user = AnonymousUser()
 
         @decorators.oauth_required
         def test_view(request):
@@ -234,7 +233,7 @@ class OAuth2RequiredDecoratorStorageModelTest(
     def test_redirects_user_to_oauth_authorize(self):
         request = self.factory.get('/test')
         request.session = self.session
-        request.user = django_models.User.objects.create_user(
+        request.user = User.objects.create_user(
             username='bill3', email='bill@example.com', password='hunter2')
 
         @decorators.oauth_required

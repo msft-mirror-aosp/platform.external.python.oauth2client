@@ -14,17 +14,17 @@
 
 import json
 import os
-import unittest
 
 from google.appengine.ext import ndb
 from google.appengine.ext import testbed
 import mock
+import unittest2
 
 from oauth2client import client
 from oauth2client.contrib import appengine
 
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data')
+DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
 
 
 def datafile(filename):
@@ -36,7 +36,7 @@ class TestNDBModel(ndb.Model):
     creds = appengine.CredentialsNDBProperty()
 
 
-class TestFlowNDBProperty(unittest.TestCase):
+class TestFlowNDBProperty(unittest2.TestCase):
 
     def setUp(self):
         self.testbed = testbed.Testbed()
@@ -85,7 +85,7 @@ class TestFlowNDBProperty(unittest.TestCase):
                                                  type(flow_val))
 
 
-class TestCredentialsNDBProperty(unittest.TestCase):
+class TestCredentialsNDBProperty(unittest2.TestCase):
 
     def setUp(self):
         self.testbed = testbed.Testbed()
