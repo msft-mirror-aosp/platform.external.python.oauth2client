@@ -17,7 +17,10 @@ import json
 import os
 import tempfile
 import time
-import unittest
+
+import dev_appserver
+
+dev_appserver.fix_sys_path()
 
 from google.appengine.api import apiproxy_stub
 from google.appengine.api import apiproxy_stub_map
@@ -28,9 +31,10 @@ from google.appengine.api.memcache import memcache_stub
 from google.appengine.ext import db
 from google.appengine.ext import ndb
 from google.appengine.ext import testbed
+import httplib2
 import mock
 from six.moves import urllib
-from six.moves import urllib_parse
+import unittest2
 import webapp2
 from webtest import TestApp
 
@@ -38,20 +42,11 @@ import oauth2client
 from oauth2client import client
 from oauth2client import clientsecrets
 from oauth2client.contrib import appengine
-from tests import http_mock
+from ..http_mock import CacheMock
 
+__author__ = 'jcgregorio@google.com (Joe Gregorio)'
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data')
-DEFAULT_RESP = """\
-{
-    "access_token": "foo_access_token",
-    "expires_in": 3600,
-    "extra": "value",
-    "refresh_token": "foo_refresh_token"
-}
-"""
-BASIC_TOKEN = 'bar'
-BASIC_RESP = json.dumps({'access_token': BASIC_TOKEN})
+DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
 
 
 def datafile(filename):
@@ -80,7 +75,23 @@ class UserNotLoggedInMock(object):
         return None
 
 
-class TestAppAssertionCredentials(unittest.TestCase):
+class Http2Mock(object):
+    """Mock httplib2.Http"""
+    status = 200
+    content = {
+        'access_token': 'foo_access_token',
+        'refresh_token': 'foo_refresh_token',
+        'expires_in': 3600,
+        'extra': 'value',
+    }
+
+    def request(self, token_uri, method, body, headers, *args, **kwargs):
+        self.body = body
+        self.headers = headers
+        return self, json.dumps(self.content)
+
+
+class TestAppAssertionCredentials(unittest2.TestCase):
     account_name = "service_account_name@appspot.com"
     signature = "signature"
 
@@ -128,7 +139,7 @@ class TestAppAssertionCredentials(unittest.TestCase):
 
         scope = 'http://www.googleapis.com/scope'
         credentials = appengine.AppAssertionCredentials(scope)
-        http = http_mock.HttpMock(data=DEFAULT_RESP)
+        http = httplib2.Http()
         with self.assertRaises(client.AccessTokenRefreshError):
             credentials.refresh(http)
 
@@ -144,7 +155,7 @@ class TestAppAssertionCredentials(unittest.TestCase):
             "http://www.googleapis.com/scope",
             "http://www.googleapis.com/scope2"]
         credentials = appengine.AppAssertionCredentials(scope)
-        http = http_mock.HttpMock(data=DEFAULT_RESP)
+        http = httplib2.Http()
         credentials.refresh(http)
         self.assertEqual('a_token_123', credentials.access_token)
 
@@ -157,7 +168,7 @@ class TestAppAssertionCredentials(unittest.TestCase):
         scope = ('http://www.googleapis.com/scope '
                  'http://www.googleapis.com/scope2')
         credentials = appengine.AppAssertionCredentials(scope)
-        http = http_mock.HttpMock(data=DEFAULT_RESP)
+        http = httplib2.Http()
         credentials.refresh(http)
         self.assertEqual('a_token_123', credentials.access_token)
         self.assertEqual(
@@ -173,7 +184,7 @@ class TestAppAssertionCredentials(unittest.TestCase):
                                autospec=True) as get_access_token:
             credentials = appengine.AppAssertionCredentials(
                 scope, service_account_id=account_id)
-            http = http_mock.HttpMock(data=DEFAULT_RESP)
+            http = httplib2.Http()
             credentials.refresh(http)
 
             self.assertEqual('a_token_456', credentials.access_token)
@@ -265,7 +276,7 @@ class TestFlowModel(db.Model):
     flow = appengine.FlowProperty()
 
 
-class FlowPropertyTest(unittest.TestCase):
+class FlowPropertyTest(unittest2.TestCase):
 
     def setUp(self):
         self.testbed = testbed.Testbed()
@@ -304,7 +315,7 @@ class TestCredentialsModel(db.Model):
     credentials = appengine.CredentialsProperty()
 
 
-class CredentialsPropertyTest(unittest.TestCase):
+class CredentialsPropertyTest(unittest2.TestCase):
 
     def setUp(self):
         self.testbed = testbed.Testbed()
@@ -358,7 +369,14 @@ class CredentialsPropertyTest(unittest.TestCase):
             appengine.CredentialsProperty().validate(42)
 
 
-class StorageByKeyNameTest(unittest.TestCase):
+def _http_request(*args, **kwargs):
+    resp = httplib2.Response({'status': '200'})
+    content = json.dumps({'access_token': 'bar'})
+
+    return resp, content
+
+
+class StorageByKeyNameTest(unittest2.TestCase):
 
     def setUp(self):
         self.testbed = testbed.Testbed()
@@ -402,23 +420,6 @@ class StorageByKeyNameTest(unittest.TestCase):
         storage._model = appengine.CredentialsNDBModel
         self.assertTrue(storage._is_ndb())
 
-    def _verify_basic_refresh(self, http):
-        self.assertEqual(http.requests, 1)
-        self.assertEqual(http.uri, oauth2client.GOOGLE_TOKEN_URI)
-        self.assertEqual(http.method, 'POST')
-        expected_body = {
-            'grant_type': ['refresh_token'],
-            'client_id': [self.credentials.client_id],
-            'client_secret': [self.credentials.client_secret],
-            'refresh_token': [self.credentials.refresh_token],
-        }
-        self.assertEqual(urllib_parse.parse_qs(http.body), expected_body)
-        expected_headers = {
-            'content-type': 'application/x-www-form-urlencoded',
-            'user-agent': self.credentials.user_agent,
-        }
-        self.assertEqual(http.headers, expected_headers)
-
     def test_get_and_put_simple(self):
         storage = appengine.StorageByKeyName(
             appengine.CredentialsModel, 'foo', 'credentials')
@@ -426,12 +427,9 @@ class StorageByKeyNameTest(unittest.TestCase):
         self.assertEqual(None, storage.get())
         self.credentials.set_store(storage)
 
-        http = http_mock.HttpMock(data=BASIC_RESP)
-        self.credentials._refresh(http)
+        self.credentials._refresh(_http_request)
         credmodel = appengine.CredentialsModel.get_by_key_name('foo')
-        self.assertEqual(BASIC_TOKEN, credmodel.credentials.access_token)
-        # Verify mock.
-        self._verify_basic_refresh(http)
+        self.assertEqual('bar', credmodel.credentials.access_token)
 
     def test_get_and_put_cached(self):
         storage = appengine.StorageByKeyName(
@@ -440,17 +438,16 @@ class StorageByKeyNameTest(unittest.TestCase):
         self.assertEqual(None, storage.get())
         self.credentials.set_store(storage)
 
-        http = http_mock.HttpMock(data=BASIC_RESP)
-        self.credentials._refresh(http)
+        self.credentials._refresh(_http_request)
         credmodel = appengine.CredentialsModel.get_by_key_name('foo')
-        self.assertEqual(BASIC_TOKEN, credmodel.credentials.access_token)
+        self.assertEqual('bar', credmodel.credentials.access_token)
 
         # Now remove the item from the cache.
         memcache.delete('foo')
 
         # Check that getting refreshes the cache.
         credentials = storage.get()
-        self.assertEqual(BASIC_TOKEN, credentials.access_token)
+        self.assertEqual('bar', credentials.access_token)
         self.assertNotEqual(None, memcache.get('foo'))
 
         # Deleting should clear the cache.
@@ -458,9 +455,6 @@ class StorageByKeyNameTest(unittest.TestCase):
         credentials = storage.get()
         self.assertEqual(None, credentials)
         self.assertEqual(None, memcache.get('foo'))
-
-        # Verify mock.
-        self._verify_basic_refresh(http)
 
     def test_get_and_put_set_store_on_cache_retrieval(self):
         storage = appengine.StorageByKeyName(
@@ -474,13 +468,9 @@ class StorageByKeyNameTest(unittest.TestCase):
         old_creds = storage.get()
         self.assertEqual(old_creds.access_token, 'foo')
         old_creds.invalid = True
-        http = http_mock.HttpMock(data=BASIC_RESP)
-        old_creds._refresh(http)
+        old_creds._refresh(_http_request)
         new_creds = storage.get()
-        self.assertEqual(new_creds.access_token, BASIC_TOKEN)
-
-        # Verify mock.
-        self._verify_basic_refresh(http)
+        self.assertEqual(new_creds.access_token, 'bar')
 
     def test_get_and_put_ndb(self):
         # Start empty
@@ -490,15 +480,11 @@ class StorageByKeyNameTest(unittest.TestCase):
 
         # Refresh storage and retrieve without using storage
         self.credentials.set_store(storage)
-        http = http_mock.HttpMock(data=BASIC_RESP)
-        self.credentials._refresh(http)
+        self.credentials._refresh(_http_request)
         credmodel = appengine.CredentialsNDBModel.get_by_id('foo')
-        self.assertEqual(BASIC_TOKEN, credmodel.credentials.access_token)
+        self.assertEqual('bar', credmodel.credentials.access_token)
         self.assertEqual(credmodel.credentials.to_json(),
                          self.credentials.to_json())
-
-        # Verify mock.
-        self._verify_basic_refresh(http)
 
     def test_delete_ndb(self):
         # Start empty
@@ -525,17 +511,13 @@ class StorageByKeyNameTest(unittest.TestCase):
 
         # Set NDB store and refresh to add to storage
         self.credentials.set_store(storage)
-        http = http_mock.HttpMock(data=BASIC_RESP)
-        self.credentials._refresh(http)
+        self.credentials._refresh(_http_request)
 
         # Retrieve same key from DB model to confirm mixing works
         credmodel = appengine.CredentialsModel.get_by_key_name('foo')
-        self.assertEqual(BASIC_TOKEN, credmodel.credentials.access_token)
+        self.assertEqual('bar', credmodel.credentials.access_token)
         self.assertEqual(self.credentials.to_json(),
                          credmodel.credentials.to_json())
-
-        # Verify mock.
-        self._verify_basic_refresh(http)
 
     def test_get_and_put_mixed_db_storage_ndb_get(self):
         # Start empty
@@ -545,17 +527,13 @@ class StorageByKeyNameTest(unittest.TestCase):
 
         # Set DB store and refresh to add to storage
         self.credentials.set_store(storage)
-        http = http_mock.HttpMock(data=BASIC_RESP)
-        self.credentials._refresh(http)
+        self.credentials._refresh(_http_request)
 
         # Retrieve same key from NDB model to confirm mixing works
         credmodel = appengine.CredentialsNDBModel.get_by_id('foo')
-        self.assertEqual(BASIC_TOKEN, credmodel.credentials.access_token)
+        self.assertEqual('bar', credmodel.credentials.access_token)
         self.assertEqual(self.credentials.to_json(),
                          credmodel.credentials.to_json())
-
-        # Verify mock.
-        self._verify_basic_refresh(http)
 
     def test_delete_db_ndb_mixed(self):
         # Start empty
@@ -595,7 +573,7 @@ class MockRequestHandler(object):
     request = MockRequest()
 
 
-class DecoratorTests(unittest.TestCase):
+class DecoratorTests(unittest2.TestCase):
 
     def setUp(self):
         self.testbed = testbed.Testbed()
@@ -652,9 +630,12 @@ class DecoratorTests(unittest.TestCase):
         })
         self.current_user = user_mock()
         users.get_current_user = self.current_user
+        self.httplib2_orig = httplib2.Http
+        httplib2.Http = Http2Mock
 
     def tearDown(self):
         self.testbed.deactivate()
+        httplib2.Http = self.httplib2_orig
 
     def test_in_error(self):
         # NOTE: This branch is never reached. _in_error is not set by any code
@@ -674,9 +655,7 @@ class DecoratorTests(unittest.TestCase):
             app.router.match_routes[0].handler.__name__,
             'OAuth2Handler')
 
-    @mock.patch('oauth2client.transport.get_http_object')
-    def test_required(self, new_http):
-        new_http.return_value = http_mock.HttpMock(data=DEFAULT_RESP)
+    def test_required(self):
         # An initial request to an oauth_required decorated path should be a
         # redirect to start the OAuth dance.
         self.assertEqual(self.decorator.flow, None)
@@ -709,7 +688,7 @@ class DecoratorTests(unittest.TestCase):
                 response_query = urllib.parse.parse_qs(parts[1])
                 response = response_query[
                     self.decorator._token_response_param][0]
-                self.assertEqual(json.loads(DEFAULT_RESP),
+                self.assertEqual(Http2Mock.content,
                                  json.loads(urllib.parse.unquote(response)))
             self.assertEqual(self.decorator.flow, self.decorator._tls.flow)
             self.assertEqual(self.decorator.credentials,
@@ -757,12 +736,7 @@ class DecoratorTests(unittest.TestCase):
         self.assertEqual('http://localhost/oauth2callback',
                          query_params['redirect_uri'][0])
 
-        # Check the mocks were called.
-        new_http.assert_called_once_with()
-
-    @mock.patch('oauth2client.transport.get_http_object')
-    def test_storage_delete(self, new_http):
-        new_http.return_value = http_mock.HttpMock(data=DEFAULT_RESP)
+    def test_storage_delete(self):
         # An initial request to an oauth_required decorated path should be a
         # redirect to start the OAuth dance.
         response = self.app.get('/foo_path')
@@ -798,12 +772,7 @@ class DecoratorTests(unittest.TestCase):
             parse_state_value.assert_called_once_with(
                 'foo_path:xsrfkey123', self.current_user)
 
-        # Check the mocks were called.
-        new_http.assert_called_once_with()
-
-    @mock.patch('oauth2client.transport.get_http_object')
-    def test_aware(self, new_http):
-        new_http.return_value = http_mock.HttpMock(data=DEFAULT_RESP)
+    def test_aware(self):
         # An initial request to an oauth_aware decorated path should
         # not redirect.
         response = self.app.get('http://localhost/bar_path/2012/01')
@@ -856,9 +825,6 @@ class DecoratorTests(unittest.TestCase):
         self.should_raise = False
         self.assertEqual(None, self.decorator.credentials)
 
-        # Check the mocks were called.
-        new_http.assert_called_once_with()
-
     def test_error_in_step2(self):
         # An initial request to an oauth_aware decorated path should
         # not redirect.
@@ -889,14 +855,10 @@ class DecoratorTests(unittest.TestCase):
         self.assertEqual(decorator.flow, decorator._tls.flow)
 
     def test_token_response_param(self):
-        # No need to set-up a mock since test_required() does.
         self.decorator._token_response_param = 'foobar'
         self.test_required()
 
-    @mock.patch('oauth2client.transport.get_http_object')
-    def test_decorator_from_client_secrets(self, new_http):
-        new_http.return_value = http_mock.HttpMock(data=DEFAULT_RESP)
-        # Execute test after setting up mock.
+    def test_decorator_from_client_secrets(self):
         decorator = appengine.OAuth2DecoratorFromClientSecrets(
             datafile('client_secrets.json'),
             scope=['foo_scope', 'bar_scope'])
@@ -911,12 +873,9 @@ class DecoratorTests(unittest.TestCase):
 
         # revoke_uri is not required
         self.assertEqual(self.decorator._revoke_uri,
-                         'https://oauth2.googleapis.com/revoke')
+                         'https://accounts.google.com/o/oauth2/revoke')
         self.assertEqual(self.decorator._revoke_uri,
                          self.decorator.credentials.revoke_uri)
-
-        # Check the mocks were called.
-        new_http.assert_called_once_with()
 
     def test_decorator_from_client_secrets_toplevel(self):
         decorator_patch = mock.patch(
@@ -956,7 +915,7 @@ class DecoratorTests(unittest.TestCase):
         self.assertIn('prompt', decorator._kwargs)
 
     def test_decorator_from_cached_client_secrets(self):
-        cache_mock = http_mock.CacheMock()
+        cache_mock = CacheMock()
         load_and_cache('client_secrets.json', 'secret', cache_mock)
         decorator = appengine.OAuth2DecoratorFromClientSecrets(
             # filename, scope, message=None, cache=None
@@ -1016,11 +975,11 @@ class DecoratorTests(unittest.TestCase):
             'oauth2client.contrib.appengine.clientsecrets.loadfile')
         with loadfile_patch as loadfile_mock:
             loadfile_mock.return_value = (clientsecrets.TYPE_WEB, {
-                'client_id': 'foo_client_id',
-                'client_secret': 'foo_client_secret',
-                'redirect_uris': [],
-                'auth_uri': oauth2client.GOOGLE_AUTH_URI,
-                'token_uri': oauth2client.GOOGLE_TOKEN_URI,
+                "client_id": "foo_client_id",
+                "client_secret": "foo_client_secret",
+                "redirect_uris": [],
+                "auth_uri": "https://accounts.google.com/o/oauth2/v2/auth",
+                "token_uri": "https://www.googleapis.com/oauth2/v4/token",
                 # No revoke URI
             })
 
@@ -1032,10 +991,7 @@ class DecoratorTests(unittest.TestCase):
         # This is never set, but it's consistent with other tests.
         self.assertFalse(decorator._in_error)
 
-    @mock.patch('oauth2client.transport.get_http_object')
-    def test_invalid_state(self, new_http):
-        new_http.return_value = http_mock.HttpMock(data=DEFAULT_RESP)
-        # Execute test after setting up mock.
+    def test_invalid_state(self):
         with mock.patch.object(appengine, '_parse_state_value',
                                return_value=None, autospec=True):
             # Now simulate the callback to /oauth2callback.
@@ -1046,11 +1002,8 @@ class DecoratorTests(unittest.TestCase):
             self.assertEqual('200 OK', response.status)
             self.assertEqual('The authorization request failed', response.body)
 
-        # Check the mocks were called.
-        new_http.assert_called_once_with()
 
-
-class DecoratorXsrfSecretTests(unittest.TestCase):
+class DecoratorXsrfSecretTests(unittest2.TestCase):
     """Test xsrf_secret_key."""
 
     def setUp(self):
@@ -1099,7 +1052,7 @@ class DecoratorXsrfSecretTests(unittest.TestCase):
         self.assertEqual(site_key.secret, secret)
 
 
-class DecoratorXsrfProtectionTests(unittest.TestCase):
+class DecoratorXsrfProtectionTests(unittest2.TestCase):
     """Test _build_state_value and _parse_state_value."""
 
     def setUp(self):

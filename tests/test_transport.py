@@ -12,17 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest
-
 import httplib2
 import mock
+import unittest2
 
 from oauth2client import client
 from oauth2client import transport
-from tests import http_mock
 
 
-class TestMemoryCache(unittest.TestCase):
+class TestMemoryCache(unittest2.TestCase):
 
     def test_get_set_delete(self):
         cache = transport.MemoryCache()
@@ -34,7 +32,7 @@ class TestMemoryCache(unittest.TestCase):
         self.assertIsNone(cache.get('foo'))
 
 
-class Test_get_cached_http(unittest.TestCase):
+class Test_get_cached_http(unittest2.TestCase):
 
     def test_global(self):
         cached_http = transport.get_cached_http()
@@ -48,22 +46,15 @@ class Test_get_cached_http(unittest.TestCase):
         self.assertIs(result, cache)
 
 
-class Test_get_http_object(unittest.TestCase):
+class Test_get_http_object(unittest2.TestCase):
 
     @mock.patch.object(httplib2, 'Http', return_value=object())
     def test_it(self, http_klass):
         result = transport.get_http_object()
         self.assertEqual(result, http_klass.return_value)
-        http_klass.assert_called_once_with()
-
-    @mock.patch.object(httplib2, 'Http', return_value=object())
-    def test_with_args(self, http_klass):
-        result = transport.get_http_object(1, 2, foo='bar')
-        self.assertEqual(result, http_klass.return_value)
-        http_klass.assert_called_once_with(1, 2, foo='bar')
 
 
-class Test__initialize_headers(unittest.TestCase):
+class Test__initialize_headers(unittest2.TestCase):
 
     def test_null(self):
         result = transport._initialize_headers(None)
@@ -76,7 +67,7 @@ class Test__initialize_headers(unittest.TestCase):
         self.assertIsNot(result, headers)
 
 
-class Test__apply_user_agent(unittest.TestCase):
+class Test__apply_user_agent(unittest2.TestCase):
 
     def test_null(self):
         headers = object()
@@ -100,7 +91,7 @@ class Test__apply_user_agent(unittest.TestCase):
         self.assertEqual(result, {'user-agent': final_agent})
 
 
-class Test_clean_headers(unittest.TestCase):
+class Test_clean_headers(unittest2.TestCase):
 
     def test_no_modify(self):
         headers = {b'key': b'val'}
@@ -128,7 +119,7 @@ class Test_clean_headers(unittest.TestCase):
         self.assertEqual(result, header_str)
 
 
-class Test_wrap_http_for_auth(unittest.TestCase):
+class Test_wrap_http_for_auth(unittest2.TestCase):
 
     def test_wrap(self):
         credentials = object()
@@ -138,45 +129,3 @@ class Test_wrap_http_for_auth(unittest.TestCase):
         self.assertIsNone(result)
         self.assertNotEqual(http.request, orig_req_method)
         self.assertIs(http.request.credentials, credentials)
-
-
-class Test_request(unittest.TestCase):
-
-    uri = 'http://localhost'
-    method = 'POST'
-    body = 'abc'
-    redirections = 3
-
-    def test_with_request_attr(self):
-        mock_result = object()
-        headers = {'foo': 'bar'}
-        http = http_mock.HttpMock(headers=headers, data=mock_result)
-
-        response, content = transport.request(
-            http, self.uri, method=self.method, body=self.body,
-            redirections=self.redirections)
-        self.assertEqual(response, headers)
-        self.assertIs(content, mock_result)
-        # Verify mocks.
-        self.assertEqual(http.requests, 1)
-        self.assertEqual(http.uri, self.uri)
-        self.assertEqual(http.method, self.method)
-        self.assertEqual(http.body, self.body)
-        self.assertIsNone(http.headers)
-
-    def test_with_callable_http(self):
-        headers = {}
-        mock_result = object()
-        http = http_mock.HttpMock(headers=headers, data=mock_result)
-
-        result = transport.request(http, self.uri, method=self.method,
-                                   body=self.body,
-                                   redirections=self.redirections)
-        self.assertEqual(result, (headers, mock_result))
-        # Verify mock.
-        self.assertEqual(http.requests, 1)
-        self.assertEqual(http.uri, self.uri)
-        self.assertEqual(http.method, self.method)
-        self.assertEqual(http.body, self.body)
-        self.assertIsNone(http.headers)
-        self.assertEqual(http.redirections, self.redirections)

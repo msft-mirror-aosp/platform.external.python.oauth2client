@@ -16,17 +16,20 @@
 
 import datetime
 import threading
-import unittest
 
 import keyring
 import mock
+import unittest2
 
 import oauth2client
 from oauth2client import client
 from oauth2client.contrib import keyring_storage
 
 
-class KeyringStorageTests(unittest.TestCase):
+__author__ = 'jcgregorio@google.com (Joe Gregorio)'
+
+
+class KeyringStorageTests(unittest2.TestCase):
 
     def test_constructor(self):
         service_name = 'my_unit_test'
@@ -55,15 +58,15 @@ class KeyringStorageTests(unittest.TestCase):
         service_name = 'my_unit_test'
         user_name = 'me'
         mock_content = (object(), 'mock_content')
-        mock_return_creds = mock.Mock()
-        mock_return_creds.set_store = set_store = mock.Mock(
+        mock_return_creds = mock.MagicMock()
+        mock_return_creds.set_store = set_store = mock.MagicMock(
             name='set_store')
         with mock.patch.object(keyring, 'get_password',
                                return_value=mock_content,
                                autospec=True) as get_password:
             class_name = 'oauth2client.client.Credentials'
             with mock.patch(class_name) as MockCreds:
-                MockCreds.new_from_json = new_from_json = mock.Mock(
+                MockCreds.new_from_json = new_from_json = mock.MagicMock(
                     name='new_from_json', return_value=mock_return_creds)
                 store = keyring_storage.Storage(service_name, user_name)
                 credentials = store.locked_get()
@@ -79,9 +82,9 @@ class KeyringStorageTests(unittest.TestCase):
         with mock.patch.object(keyring, 'set_password',
                                return_value=None,
                                autospec=True) as set_password:
-            credentials = mock.Mock()
+            credentials = mock.MagicMock()
             to_json_ret = object()
-            credentials.to_json = to_json = mock.Mock(
+            credentials.to_json = to_json = mock.MagicMock(
                 name='to_json', return_value=to_json_ret)
             store.locked_put(credentials)
             to_json.assert_called_once_with()

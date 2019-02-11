@@ -20,25 +20,27 @@ import json
 import django
 from django import http
 import django.conf
-from django.contrib.auth import models as django_models
+from django.contrib.auth.models import AnonymousUser, User
 import mock
 from six.moves import reload_module
 
-from oauth2client import client
+from tests.contrib.django_util import TestWithDjangoEnvironment
+from tests.contrib.django_util.models import CredentialsModel
+
+from oauth2client.client import FlowExchangeError, OAuth2WebServerFlow
 import oauth2client.contrib.django_util
 from oauth2client.contrib.django_util import views
-from tests.contrib import django_util as tests_django_util
-from tests.contrib.django_util import models as tests_models
+from oauth2client.contrib.django_util.models import CredentialsField
 
 
-class OAuth2AuthorizeTest(tests_django_util.TestWithDjangoEnvironment):
+class OAuth2AuthorizeTest(TestWithDjangoEnvironment):
 
     def setUp(self):
         super(OAuth2AuthorizeTest, self).setUp()
         self.save_settings = copy.deepcopy(django.conf.settings)
         reload_module(oauth2client.contrib.django_util)
-        self.user = django_models.User.objects.create_user(
-            username='bill', email='bill@example.com', password='hunter2')
+        self.user = User.objects.create_user(
+          username='bill', email='bill@example.com', password='hunter2')
 
     def tearDown(self):
         django.conf.settings = copy.deepcopy(self.save_settings)
@@ -53,7 +55,7 @@ class OAuth2AuthorizeTest(tests_django_util.TestWithDjangoEnvironment):
     def test_authorize_anonymous_user(self):
         request = self.factory.get('oauth2/oauth2authorize')
         request.session = self.session
-        request.user = django_models.AnonymousUser()
+        request.user = AnonymousUser()
         response = views.oauth2_authorize(request)
         self.assertIsInstance(response, http.HttpResponseRedirect)
 
@@ -66,8 +68,7 @@ class OAuth2AuthorizeTest(tests_django_util.TestWithDjangoEnvironment):
         self.assertIsInstance(response, http.HttpResponseRedirect)
 
 
-class Oauth2AuthorizeStorageModelTest(
-        tests_django_util.TestWithDjangoEnvironment):
+class Oauth2AuthorizeStorageModelTest(TestWithDjangoEnvironment):
 
     def setUp(self):
         super(Oauth2AuthorizeStorageModelTest, self).setUp()
@@ -84,7 +85,7 @@ class Oauth2AuthorizeStorageModelTest(
         # at import time, so in order for us to reload the settings
         # we need to reload the module
         reload_module(oauth2client.contrib.django_util)
-        self.user = django_models.User.objects.create_user(
+        self.user = User.objects.create_user(
             username='bill', email='bill@example.com', password='hunter2')
 
     def tearDown(self):
@@ -102,7 +103,7 @@ class Oauth2AuthorizeStorageModelTest(
     def test_authorize_anonymous_user_redirects_login(self):
         request = self.factory.get('oauth2/oauth2authorize')
         request.session = self.session
-        request.user = django_models.AnonymousUser()
+        request.user = AnonymousUser()
         response = views.oauth2_authorize(request)
         self.assertIsInstance(response, http.HttpResponseRedirect)
         # redirects to Django login
@@ -116,53 +117,25 @@ class Oauth2AuthorizeStorageModelTest(
         response = views.oauth2_authorize(request)
         self.assertIsInstance(response, http.HttpResponseRedirect)
 
-    def test_authorized_user_no_credentials_redirects(self):
+    def test_authorized_user_not_logged_in_redirects(self):
         request = self.factory.get('oauth2/oauth2authorize',
                                    data={'return_url': '/return_endpoint'})
         request.session = self.session
 
-        authorized_user = django_models.User.objects.create_user(
+        authorized_user = User.objects.create_user(
             username='bill2', email='bill@example.com', password='hunter2')
+        credentials = CredentialsField()
 
-        tests_models.CredentialsModel.objects.create(
-            user_id=authorized_user,
-            credentials=None)
-
-        request.user = authorized_user
-        response = views.oauth2_authorize(request)
-        self.assertIsInstance(response, http.HttpResponseRedirect)
-
-    def test_already_authorized(self):
-        request = self.factory.get('oauth2/oauth2authorize',
-                                   data={'return_url': '/return_endpoint'})
-        request.session = self.session
-
-        authorized_user = django_models.User.objects.create_user(
-            username='bill2', email='bill@example.com', password='hunter2')
-
-        credentials = _Credentials()
-        tests_models.CredentialsModel.objects.create(
+        CredentialsModel.objects.create(
             user_id=authorized_user,
             credentials=credentials)
 
         request.user = authorized_user
         response = views.oauth2_authorize(request)
         self.assertIsInstance(response, http.HttpResponseRedirect)
-        self.assertEqual(response.url, '/return_endpoint')
 
 
-class _Credentials(object):
-    # Can't use mock when testing Django models
-    # https://code.djangoproject.com/ticket/25493
-    def __init__(self):
-        self.invalid = False
-        self.scopes = set()
-
-    def has_scopes(self, _):
-        return True
-
-
-class Oauth2CallbackTest(tests_django_util.TestWithDjangoEnvironment):
+class Oauth2CallbackTest(TestWithDjangoEnvironment):
 
     def setUp(self):
         super(Oauth2CallbackTest, self).setUp()
@@ -176,11 +149,11 @@ class Oauth2CallbackTest(tests_django_util.TestWithDjangoEnvironment):
             'return_url': self.RETURN_URL,
             'scopes': django.conf.settings.GOOGLE_OAUTH2_SCOPES
         }
-        self.user = django_models.User.objects.create_user(
+        self.user = User.objects.create_user(
             username='bill', email='bill@example.com', password='hunter2')
 
-    @mock.patch('oauth2client.contrib.django_util.views.jsonpickle')
-    def test_callback_works(self, jsonpickle_mock):
+    @mock.patch('oauth2client.contrib.django_util.views.pickle')
+    def test_callback_works(self, pickle):
         request = self.factory.get('oauth2/oauth2callback', data={
             'state': json.dumps(self.fake_state),
             'code': 123
@@ -188,7 +161,7 @@ class Oauth2CallbackTest(tests_django_util.TestWithDjangoEnvironment):
 
         self.session['google_oauth2_csrf_token'] = self.CSRF_TOKEN
 
-        flow = client.OAuth2WebServerFlow(
+        flow = OAuth2WebServerFlow(
             client_id='clientid',
             client_secret='clientsecret',
             scope=['email'],
@@ -196,10 +169,9 @@ class Oauth2CallbackTest(tests_django_util.TestWithDjangoEnvironment):
             redirect_uri=request.build_absolute_uri("oauth2/oauth2callback"))
 
         name = 'google_oauth2_flow_{0}'.format(self.CSRF_TOKEN)
-        pickled_flow = object()
-        self.session[name] = pickled_flow
+        self.session[name] = pickle.dumps(flow)
         flow.step2_exchange = mock.Mock()
-        jsonpickle_mock.decode.return_value = flow
+        pickle.loads.return_value = flow
 
         request.session = self.session
         request.user = self.user
@@ -208,10 +180,9 @@ class Oauth2CallbackTest(tests_django_util.TestWithDjangoEnvironment):
         self.assertEqual(
             response.status_code, django.http.HttpResponseRedirect.status_code)
         self.assertEqual(response['Location'], self.RETURN_URL)
-        jsonpickle_mock.decode.assert_called_once_with(pickled_flow)
 
-    @mock.patch('oauth2client.contrib.django_util.views.jsonpickle')
-    def test_callback_handles_bad_flow_exchange(self, jsonpickle_mock):
+    @mock.patch('oauth2client.contrib.django_util.views.pickle')
+    def test_callback_handles_bad_flow_exchange(self, pickle):
         request = self.factory.get('oauth2/oauth2callback', data={
             "state": json.dumps(self.fake_state),
             "code": 123
@@ -219,27 +190,25 @@ class Oauth2CallbackTest(tests_django_util.TestWithDjangoEnvironment):
 
         self.session['google_oauth2_csrf_token'] = self.CSRF_TOKEN
 
-        flow = client.OAuth2WebServerFlow(
+        flow = OAuth2WebServerFlow(
             client_id='clientid',
             client_secret='clientsecret',
             scope=['email'],
             state=json.dumps(self.fake_state),
             redirect_uri=request.build_absolute_uri('oauth2/oauth2callback'))
 
-        session_key = 'google_oauth2_flow_{0}'.format(self.CSRF_TOKEN)
-        pickled_flow = object()
-        self.session[session_key] = pickled_flow
+        self.session['google_oauth2_flow_{0}'.format(self.CSRF_TOKEN)] \
+            = pickle.dumps(flow)
 
         def local_throws(code):
-            raise client.FlowExchangeError('test')
+            raise FlowExchangeError('test')
 
         flow.step2_exchange = local_throws
-        jsonpickle_mock.decode.return_value = flow
+        pickle.loads.return_value = flow
 
         request.session = self.session
         response = views.oauth2_callback(request)
         self.assertIsInstance(response, http.HttpResponseBadRequest)
-        jsonpickle_mock.decode.assert_called_once_with(pickled_flow)
 
     def test_error_returns_bad_request(self):
         request = self.factory.get('oauth2/oauth2callback', data={
@@ -248,15 +217,6 @@ class Oauth2CallbackTest(tests_django_util.TestWithDjangoEnvironment):
         response = views.oauth2_callback(request)
         self.assertIsInstance(response, http.HttpResponseBadRequest)
         self.assertIn(b'Authorization failed', response.content)
-
-    def test_error_escapes_html(self):
-        request = self.factory.get('oauth2/oauth2callback', data={
-            'error': '<script>bad</script>',
-        })
-        response = views.oauth2_callback(request)
-        self.assertIsInstance(response, http.HttpResponseBadRequest)
-        self.assertNotIn(b'<script>', response.content)
-        self.assertIn(b'&lt;script&gt;', response.content)
 
     def test_no_session(self):
         request = self.factory.get('oauth2/oauth2callback', data={
