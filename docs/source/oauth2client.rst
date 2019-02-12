@@ -20,6 +20,7 @@ Submodules
    oauth2client.service_account
    oauth2client.tools
    oauth2client.transport
+   oauth2client.util
 
 Module contents
 ---------------

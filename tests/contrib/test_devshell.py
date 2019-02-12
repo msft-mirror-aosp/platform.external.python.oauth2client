@@ -19,9 +19,9 @@ import json
 import os
 import socket
 import threading
-import unittest
 
 import mock
+import unittest2
 
 from oauth2client import _helpers
 from oauth2client import client
@@ -38,7 +38,7 @@ DEFAULT_CREDENTIAL_JSON = json.dumps([
 ])
 
 
-class TestCredentialInfoResponse(unittest.TestCase):
+class TestCredentialInfoResponse(unittest2.TestCase):
 
     def test_constructor_with_non_list(self):
         json_non_list = '{}'
@@ -71,29 +71,29 @@ class TestCredentialInfoResponse(unittest.TestCase):
         self.assertEqual(info_response.expires_in, expires_in)
 
 
-class Test_SendRecv(unittest.TestCase):
+class Test_SendRecv(unittest2.TestCase):
 
     def test_port_zero(self):
         with mock.patch('oauth2client.contrib.devshell.os') as os_mod:
-            os_mod.getenv = mock.Mock(name='getenv', return_value=0)
+            os_mod.getenv = mock.MagicMock(name='getenv', return_value=0)
             with self.assertRaises(devshell.NoDevshellServer):
                 devshell._SendRecv()
             os_mod.getenv.assert_called_once_with(devshell.DEVSHELL_ENV, 0)
 
     def test_no_newline_in_received_header(self):
         non_zero_port = 1
-        sock = mock.Mock()
+        sock = mock.MagicMock()
 
         header_without_newline = ''
-        sock.recv(6).decode = mock.Mock(
+        sock.recv(6).decode = mock.MagicMock(
             name='decode', return_value=header_without_newline)
 
         with mock.patch('oauth2client.contrib.devshell.os') as os_mod:
-            os_mod.getenv = mock.Mock(name='getenv',
-                                      return_value=non_zero_port)
+            os_mod.getenv = mock.MagicMock(name='getenv',
+                                           return_value=non_zero_port)
             with mock.patch('oauth2client.contrib.devshell.socket') as socket:
-                socket.socket = mock.Mock(name='socket',
-                                          return_value=sock)
+                socket.socket = mock.MagicMock(name='socket',
+                                               return_value=sock)
                 with self.assertRaises(devshell.CommunicationError):
                     devshell._SendRecv()
                 os_mod.getenv.assert_called_once_with(devshell.DEVSHELL_ENV, 0)
@@ -160,15 +160,15 @@ class _AuthReferenceServer(threading.Thread):
                     s.recv(to_read, socket.MSG_WAITALL))
             if resp_buffer != devshell.CREDENTIAL_INFO_REQUEST_JSON:
                 self.bad_request = True
-            response_len = len(self.response)
-            s.sendall('{0}\n{1}'.format(response_len, self.response).encode())
+            l = len(self.response)
+            s.sendall('{0}\n{1}'.format(l, self.response).encode())
         finally:
             # Will fail if s is None, but these tests never encounter
             # that scenario.
             s.close()
 
 
-class DevshellCredentialsTests(unittest.TestCase):
+class DevshellCredentialsTests(unittest2.TestCase):
 
     def test_signals_no_server(self):
         with self.assertRaises(devshell.NoDevshellServer):
